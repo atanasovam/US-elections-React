@@ -4,7 +4,7 @@ import styled from 'styled-components';
 import Web3Modal from 'web3modal';
 // @ts-ignore
 import WalletConnectProvider from '@walletconnect/web3-provider';
-import Button from './components/Button';
+
 import Column from './components/Column';
 import Wrapper from './components/Wrapper';
 import Header from './components/Header';
@@ -33,7 +33,7 @@ const SContent = styled(Wrapper)`
   padding: 0 16px;
 `;
 
-const FormButton =  styled.button`
+const FormButton = styled.button`
   width: 100%;
   padding: 15px;
   font-size: 18px;
@@ -103,6 +103,7 @@ interface IAppState {
   result: any | null;
   electionContract: any | null;
   seats: ISeats;
+  currentLeader: string;
   form: IForm,
   hasEnded: boolean;
   info: any | null;
@@ -117,6 +118,7 @@ const INITIAL_STATE: IAppState = {
   pendingRequest: false,
   result: null,
   electionContract: null,
+  currentLeader: "",
   seats: {
     trump: 0,
     biden: 0
@@ -172,6 +174,7 @@ class App extends React.Component<any, any> {
       chainId: network.chainId,
       address,
       connected: true,
+      currentLeader: "",
       seats: {
         trump: 0,
         biden: 0
@@ -219,7 +222,7 @@ class App extends React.Component<any, any> {
     }
 
     await this.setState({ fetching: false });
-    await this.setState({ info: { message: `Current Leader: ${currentLeader}`, link: '#' } });
+    await this.setState({ currentLeader: currentLeader === 1 ? "Trump" : "Biden" });
   };
 
   public submitElectionResult = async () => {
@@ -267,7 +270,6 @@ class App extends React.Component<any, any> {
 
       const endTransaction = await electionContract.endElection();
       const endTransactionReceipt = await endTransaction.wait();
-
       if (endTransactionReceipt.status !== 1) {
         return;
       }
@@ -393,6 +395,7 @@ class App extends React.Component<any, any> {
       fetching,
       seats,
       electionContract,
+      currentLeader,
       hasEnded,
       info,
     } = this.state;
@@ -421,17 +424,18 @@ class App extends React.Component<any, any> {
 
                     <div className="container-fluid">
 
-                      <div className="row">
-                        <div className="col-4">
-                          <Button onClick={this.resumeElection}>Resume Election</Button>
+                      {info !== null ? (
+                        <div className="row">
+                          <div className="col-12">
+                            <h5>Info message</h5>
+
+                            <div className="pb-2">
+                              <a href={info.link} target="_blank">{info.message}</a>
+                            </div>
+                          </div>
                         </div>
-                        <div className="col-4">
-                          <Button onClick={this.currentLeader}>Current Leader</Button>
-                        </div>
-                        <div className="col-4">
-                          <Button onClick={this.endElection}>End Election</Button>
-                        </div>
-                      </div>
+                      ) : null}
+
 
                       <div className="row text-left mb-5">
                         <div className="col-6">
@@ -458,7 +462,7 @@ class App extends React.Component<any, any> {
                               <input value={this.state.form.seats} onChange={this.handleInputChange} className="form-control" type="text" name="seats" />
                             </div>
 
-                            <div className="">
+                            <div>
                               <FormButton onClick={this.submitElectionResult}>Submit Result</FormButton>
                             </div>
                           </form>
@@ -468,7 +472,7 @@ class App extends React.Component<any, any> {
                           <h4 className="py-4">Election info</h4>
 
                           <div style={{
-                            height: "40%",
+                            height: "38%",
                             padding: "16px",
                             backgroundColor: "#e6f2ff"
                           }}>
@@ -481,17 +485,29 @@ class App extends React.Component<any, any> {
                               <h6>Seats for Biden: {seats.biden}</h6>
                             ) : null}
 
-                            {hasEnded ? (
-                              <h6>Election ended!</h6>
-                            ) : (
-                              <h6>Ongoing election...</h6>
-                            )}
-
-                            {info !== null ? (
-                              <div>
-                                <a href={info.link} target="_blank">{info.message}</a>
-                              </div>
+                            {currentLeader !== "" ? (
+                              <h6>Current leader: {currentLeader}</h6>
                             ) : null}
+
+                            <div className="pt-2">
+                              {hasEnded ? (
+                                <h6>Election ended!</h6>
+                              ) : (
+                                <h6>Ongoing election...</h6>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="row pt-3">
+                            <div className="col-12 pb-2">
+                              <FormButton disabled={!hasEnded} onClick={this.resumeElection}>Resume Election</FormButton>
+                            </div>
+                            <div className="col-12 pb-2">
+                              <FormButton onClick={this.currentLeader}>Current Leader</FormButton>
+                            </div>
+                            <div className="col-12 pb-2">
+                              <FormButton disabled={hasEnded} onClick={this.endElection}>End Election</FormButton>
+                            </div>
                           </div>
                         </div>
                       </div>
