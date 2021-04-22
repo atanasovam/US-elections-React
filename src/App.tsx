@@ -93,6 +93,11 @@ interface IForm {
   seats: number;
 }
 
+interface ITxInfo {
+  message: string,
+  link: string
+}
+
 interface IAppState {
   fetching: boolean;
   address: string;
@@ -107,6 +112,7 @@ interface IAppState {
   form: IForm,
   hasEnded: boolean;
   info: any | null;
+  ongoingTx: ITxInfo,
 }
 
 const INITIAL_STATE: IAppState = {
@@ -118,7 +124,11 @@ const INITIAL_STATE: IAppState = {
   pendingRequest: false,
   result: null,
   electionContract: null,
-  currentLeader: "",
+  currentLeader: '',
+  ongoingTx: {
+    message: '',
+    link: ''
+  },
   seats: {
     trump: 0,
     biden: 0
@@ -185,12 +195,15 @@ class App extends React.Component<any, any> {
         biden: 0,
         seats: 0
       },
+      ongoingTx: {
+        message: '',
+        link: ''
+      },
       hasEnded,
       electionContract
     });
 
     await this.currentLeader();
-
     await this.updateSeats();
 
     await this.subscribeToProviderEvents(provider);
@@ -226,20 +239,41 @@ class App extends React.Component<any, any> {
   };
 
   public submitElectionResult = async () => {
+    this.state.info = null;
+    this.state.ongoingTx.message = 'Loading...';
+    this.state.ongoingTx.link = '';
+
     const { electionContract } = this.state;
     if (!electionContract) {
       return;
     }
 
-    const { stateName, trump, biden, seats } = this.state.form;
+    const { stateName = "", trump = 0, biden = 0, seats = 0 } = this.state.form;
+
+    if (stateName === '' || trump === 0 || biden === 0 || seats === 0) { 
+      await this.setState({ info: { message: "Fields of type number must be >= 0, state name cannot be empty string!" } });
+      return;
+    }
+
     const data = [stateName, trump, biden, seats];
 
     await this.setState({ fetching: true });
 
+    this.state.form = {
+      stateName: '',
+      trump: 0,
+      biden: 0,
+      seats: 0
+    };
+
     try {
       const transaction = await electionContract.submitStateResult(data);
 
-      await this.setState({ transactionHash: transaction.hash });
+      const ongoingTx: ITxInfo = {
+        message: `Mining Etherscan tx: ${transaction.hash}...`,
+        link: `https://ropsten.etherscan.io/tx/${transaction.hash}`
+      };
+      await this.showTransactionMessage(ongoingTx.message, ongoingTx.link);
 
       const transactionReceipt = await transaction.wait();
 
@@ -252,13 +286,19 @@ class App extends React.Component<any, any> {
       await this.setState({ fetching: false });
       await this.updateSeats();
 
+      ongoingTx.message = `Etherscan tx: ${transactionReceipt.transactionHash}`;
+      await this.showTransactionMessage(ongoingTx.message, ongoingTx.link);
+
     } catch (error) {
       await this.setState({ fetching: false });
-      await this.setState({ info: { message: `[func: submitElectionResult] ${error.error.message}` } });
+      await this.setState({ info: { message: `[func: submitElectionResult] ${error.message}` } });
     }
   };
 
   public endElection = async () => {
+    this.state.ongoingTx.message = 'Loading...';
+    this.state.ongoingTx.link = '';
+
     try {
       const { electionContract } = this.state;
 
@@ -269,14 +309,25 @@ class App extends React.Component<any, any> {
       await this.setState({ fetching: true });
 
       const endTransaction = await electionContract.endElection();
-      const endTransactionReceipt = await endTransaction.wait();
-      if (endTransactionReceipt.status !== 1) {
+      const ongoingTx: ITxInfo = {
+        message: `Mining Etherscan tx: ${endTransaction.hash}...`,
+        link: `https://ropsten.etherscan.io/tx/${endTransaction.hash}`
+      };
+
+      await this.showTransactionMessage(ongoingTx.message, ongoingTx.link);
+
+      const transaction = await endTransaction.wait();
+
+      if (transaction.status !== 1) {
+        await this.setState({ fetching: false });
         return;
       }
 
       await this.setState({ hasEnded: true });
-      await this.setState({ info: { message: `Etherscan tx: ${endTransaction.hash}`, link: `${endTransaction.explorer}/tx/${endTransaction.hash}` } });
       await this.setState({ fetching: false });
+
+      ongoingTx.message = `Etherscan tx: ${endTransaction.hash}`;
+      await this.showTransactionMessage(ongoingTx.message, ongoingTx.link);
 
     } catch (e) {
       await this.setState({ fetching: false });
@@ -285,22 +336,43 @@ class App extends React.Component<any, any> {
   };
 
   public resumeElection = async () => {
+    this.state.ongoingTx.message = 'Loading...';
+    this.state.ongoingTx.link = '';
+
     const { electionContract } = this.state;
 
     if (!electionContract) {
+      await this.setState({ fetching: false });
       return;
     }
 
     await this.setState({ fetching: true });
     const result = await electionContract.resumeElection();
+    const ongoingTx: ITxInfo = {
+      message: `Mining Etherscan tx: ${result.hash}...`,
+      link: `https://ropsten.etherscan.io/tx/${result.hash}`
+    };
 
-    if (result) {
-      await this.setState({ hasEnded: false });
-      await this.setState({ fetching: false });
+    await this.showTransactionMessage(ongoingTx.message, ongoingTx.link);
+
+    const transaction = await result.wait();
+
+    if (transaction.status !== 1) {
       return;
     }
+    ongoingTx.message = `Etherscan tx: ${result.hash}`;
+    await this.showTransactionMessage(ongoingTx.message, ongoingTx.link);
+
+    await this.setState({ hasEnded: false });
+    await this.setState({ fetching: false });
 
     await this.setState({ fetching: false });
+  };
+
+  public showTransactionMessage = async (message: string, link: string) => {
+    await this.setState({
+      ongoingTx: { message, link }
+    });
   };
 
   public subscribeToProviderEvents = async (provider: any) => {
@@ -398,6 +470,7 @@ class App extends React.Component<any, any> {
       currentLeader,
       hasEnded,
       info,
+      ongoingTx
     } = this.state;
     return (
       <SLayout>
@@ -413,6 +486,17 @@ class App extends React.Component<any, any> {
             {fetching ? (
               <Column center>
                 <SContainer><Loader /></SContainer>
+                <div className="row">
+                  <div className="col-12">
+                    {ongoingTx.message !== "" ? (
+                      <a href={ongoingTx.link} target="_blank">
+                        <h5>{ongoingTx.message}</h5>
+                      </a>
+                    ) : (
+                      <h5>Loading...</h5>
+                    )}
+                  </div>
+                </div>
               </Column>
             ) : electionContract && connected ? (
               <SBalances>
@@ -435,7 +519,6 @@ class App extends React.Component<any, any> {
                           </div>
                         </div>
                       ) : null}
-
 
                       <div className="row text-left mb-5">
                         <div className="col-6">
@@ -463,7 +546,7 @@ class App extends React.Component<any, any> {
                             </div>
 
                             <div>
-                              <FormButton onClick={this.submitElectionResult}>Submit Result</FormButton>
+                              <FormButton type="button" onClick={this.submitElectionResult}>Submit Result</FormButton>
                             </div>
                           </form>
                         </div>
